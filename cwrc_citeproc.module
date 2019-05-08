@@ -1,0 +1,101 @@
+<?php
+
+/**
+ * @file
+ * CWRC citeproc module file.
+ */
+
+/**
+ * Implements hook_block_view_MODULE_DELTA_alter().
+ */
+function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block) {
+  $object = menu_get_object('islandora_object', 2);
+  $style = variable_get('islandora_blocks_citation_style');
+  $citeproc_style = citeproc_style($style);
+  $locale_xml = _cwrc_citeproc_get_locales_file_name();
+  if (empty($object) || empty($citeproc_style['data']) || empty($locale_xml)) {
+    return;
+  }
+
+  $module_name = 'cwrc_citeproc';
+  $path = drupal_get_path('module', $module_name);
+  $mods_content = $object['MODS']->content;
+
+  module_load_include('inc', 'citeproc', 'includes/converter');
+
+  $raw = convert_mods_to_citeproc_jsons($mods_content);
+  $raw = _citeproc_array_to_object($raw);
+
+  $container_id = 'cwrc-citeproc-bibliography-wrapper';
+  $js_settings[$module_name] = array(
+    'style' => $citeproc_style,
+    'locale_xml' => $locale_xml,
+    'citation_id' => $object->id,
+    'item' => $raw,
+    'container_id' => $container_id,
+  );
+  $content = array(
+    '#markup' => t('<h3>Bibliography rendered by citeproc js:</h3><div id="@container_id"></div>', array(
+      '@container_id' => $container_id,
+    )),
+    '#attached' => array(
+      'js' => array(
+        array('type' => 'setting', 'data' => $js_settings),
+        $path . '/js/citeproc.js',
+        $path . '/js/block.js',
+      ),
+    ),
+  );
+
+  $data['content'] .= drupal_render($content);
+}
+
+
+function _cwrc_citeproc_get_locales_file_name() {
+  global $language;
+  $lang = $language->language;
+  $citeproc_php_path = libraries_get_path('citeproc-php');
+  $lang_bases = array(
+    'af' => "af-ZA",
+    'ar' => 'ar-AR',
+    'bg' => 'bg-BG',
+    'ca' => 'ca-AD',
+    'cs' => 'cs-CZ',
+    'da' => 'da-DK',
+    'de' => 'de-DE',
+    'el' => 'el-GR',
+    'en' => 'en-GB',
+    'en' => 'en-US',
+    'es' => 'es-ES',
+    'et' => 'et-EE',
+    'fa' => 'fa-IR',
+    'fi' => 'fi-FI',
+    'fr' => 'fr-FR',
+    'he' => 'he-IL',
+    'hu' => 'hu-HU',
+    'is' => 'is-IS',
+    'it' => 'it-IT',
+    'ja' => 'ja-JP',
+    'km' => 'km-KH',
+    'ko' => 'ko-KR',
+    'mn' => 'mn-MN',
+    'nb' => 'nb-NO',
+    'nl' => 'nl-NL',
+    'nn' => 'nn-NO',
+    'pl' => 'pl-PL',
+    'pt' => 'pt-PT',
+    'ro' => 'ro-RO',
+    'ru' => 'ru-RU',
+    'sk' => 'sk-SK',
+    'sl' => 'sl-SI',
+    'sr' => 'sr-RS',
+    'sv' => 'sv-SE',
+    'th' => 'th-TH',
+    'tr' => 'tr-TR',
+    'uk' => 'uk-UA',
+    'vi' => 'vi-VN',
+    'zh' => 'zh-CN',
+  );
+
+  return isset($lang_bases[$lang]) ? file_get_contents($citeproc_php_path . '/locale/locales-' . $lang_bases[$lang] . '.xml') : file_get_contents($citeproc_php_path . '/locale/locales-en-US.xml');
+}
