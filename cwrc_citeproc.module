@@ -17,6 +17,7 @@ function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block
     return;
   }
 
+  $object_id = $object->id;
   $module_name = 'cwrc_citeproc';
   $path = drupal_get_path('module', $module_name);
   $mods_content = $object['MODS']->content;
@@ -25,13 +26,14 @@ function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block
 
   $raw = convert_mods_to_citeproc_jsons($mods_content);
   $raw = _citeproc_array_to_object($raw);
+  $raw->id = $object_id;
 
-  $container_id = 'cwrc-citeproc-bibliography-wrapper';
+  $container_id = 'cwrc-citeproc-bibliography-wrapper-' . $object_id;
   $js_settings[$module_name] = array(
     'style' => $citeproc_style,
     'locale_xml' => $locale_xml,
-    'citation_id' => $object->id,
-    'item' => $raw,
+    'items' => [$object_id => $raw],
+    'item_ids' => [$object_id],
     'container_id' => $container_id,
   );
   $content = array(

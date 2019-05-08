@@ -4,16 +4,11 @@
 
   Drupal.behaviors.cwrcCiteprocJs = {
     attach: function (context, settings) {
-      var module_settings = settings.cwrc_citeproc;
-      var style = module_settings.style.data;
-      var items = [];
-      var citation_id = module_settings.object_id;
-      var itemIds = [];
-      var content = document.getElementById(module_settings.container_id);
-
-      itemIds.push(citation_id);
-      module_settings.item.id = citation_id;
-      items[citation_id] = module_settings.item;
+      var module_settings = settings.cwrc_citeproc,
+        items = module_settings.items,
+        itemIds = module_settings.item_ids,
+        style = module_settings.style.data,
+        content = document.getElementById(module_settings.container_id);
 
       // Initialize a system object, which contains two methods needed by the
       // engine.
@@ -33,21 +28,17 @@
         }
       };
 
-      // Given the identifier of a CSL style, this function instantiates a
-      // CSL.Engine object that can render citations in that style.
-      function getProcessor() {
-        // Instantiate and return the engine.
-        var citeproc = new CSL.Engine(citeprocSys, style);
-        return citeproc;
-      }
-
       // This runs at document ready, and renders the bibliography.
       function processorOutput() {
-        var citeproc = getProcessor();
+        // Given the identifier of a CSL style, we instantiates a CSL.Engine
+        // object that can render citations in that style.
+        var citeproc = new CSL.Engine(citeprocSys, style);
         citeproc.updateItems(itemIds);
         var bibResult = citeproc.makeBibliography();
         return bibResult[1].join('\n');
       }
+
+      // Add the output in the wrapper.
       content.innerHTML = processorOutput();
     }
   };
