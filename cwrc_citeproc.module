@@ -23,12 +23,13 @@ function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block
   $mods_content = $object['MODS']->content;
 
   module_load_include('inc', 'citeproc', 'includes/converter');
-
   $raw = convert_mods_to_citeproc_jsons($mods_content);
   $raw = _citeproc_array_to_object($raw);
+
+  // Adding id based on the object.
   $raw->id = $object_id;
 
-  $container_id = 'cwrc-citeproc-bibliography-wrapper-' . $object_id;
+  $container_id = 'cwrc-citeproc-bibliography-wrapper-' . drupal_clean_css_identifier($object_id);
   $js_settings[$module_name] = array(
     'style' => $citeproc_style,
     'locale_xml' => $locale_xml,
@@ -52,7 +53,74 @@ function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block
   $data['content'] .= drupal_render($content);
 }
 
+/**
+ * Implements hook_convert_mods_to_citeproc_jsons_alter().
+ */
+function cwrc_citeproc_convert_mods_to_citeproc_jsons_alter(array &$output, SimpleXMLElement $mods) {
+  module_load_include('inc', 'citeproc', 'includes/converter');
 
+  if (empty($output['page']) && ($page = _cwrc_citeproc_convert_mods_to_citeproc_json_page($mods))) {
+    $output['page'] = $page;
+  }
+
+  // Checking volume.
+  if (empty($output['volume']) && ($volume = _cwrc_citeproc_convert_mods_to_citeproc_json_volume_issue($mods, 'volume'))) {
+    $output['volume'] = $volume;
+  }
+
+  // Checking issue.
+  if (empty($output['issue']) && ($issue = _cwrc_citeproc_convert_mods_to_citeproc_json_volume_issue($mods, 'issue'))) {
+    $output['issue'] = $issue;
+  }
+
+  // Checking publisher.
+  if (empty($output['publisher'])) {
+    $query = '//mods:originInfo/mods:publisher';
+    $publisher = $mods->xpath($query);
+    $publisher = isset($publisher[0]) ? (string) $publisher[0] : NULL;
+    if ($publisher) {
+      $output['publisher'] = $publisher;
+    }
+  }
+
+  // Using copyright date when issued no available but publisher info provided.
+  if (!empty($output['publisher']) && isset($output['issued']['string-literal'])) {
+    // Try to use copyright date
+    $query = '/mods:mods/mods:relatedItem[1]/mods:originInfo/mods:copyrightDate | //mods:originInfo/mods:copyrightDate';
+    $copyright_date = convert_mods_to_citeproc_json_query($mods, $query);
+    if ($copyright_date && _cwrc_citeproc_get_valid_date($copyright_date)) {
+      _try_parse_date($output['issued'], $copyright_date);
+    }
+  }
+
+  // Checking accessed when no issued date is provided.
+  if (empty($output['accessed'])) {
+    $path = '/mods:mods/mods:location/mods:url[1]/@dateLastAccessed';
+    $result = $mods->xpath($path);
+    $result = !empty($result[0]) ? (string) $result[0] : '';
+    $date = $result ? _cwrc_citeproc_get_valid_date($result) : '';
+    if ($date) {
+      $accessed = array('accessed' => array());
+      _try_parse_date($accessed['accessed'], $date);
+      $output['accessed'] = $accessed['accessed'];
+    }
+  }
+
+  if (empty($output['edition'])) {
+    $query = '/mods:mods/mods:relatedItem[1]/mods:originInfo/mods:edition';
+    $edition = convert_mods_to_citeproc_json_query($mods, $query);
+    if ($edition && is_string($edition)) {
+      $output['edition'] = $edition;
+    }
+  }
+}
+
+/**
+ * Gets citeproc locale name from the citeproc-php library.
+ *
+ * @return false|string
+ *   The file name or FALSE if not found.
+ */
 function _cwrc_citeproc_get_locales_file_name() {
   global $language;
   $lang = $language->language;
@@ -100,4 +168,104 @@ function _cwrc_citeproc_get_locales_file_name() {
   );
 
   return isset($lang_bases[$lang]) ? file_get_contents($citeproc_php_path . '/locale/locales-' . $lang_bases[$lang] . '.xml') : file_get_contents($citeproc_php_path . '/locale/locales-en-US.xml');
+}
+
+/**
+ * Helper function to extract pages from mods.
+ *
+ * @param $mods
+ *   The mods element.
+ *
+ * @return string|null
+ *   The pages.
+ */
+function _cwrc_citeproc_convert_mods_to_citeproc_json_page($mods) {
+  $output = '';
+
+  $pages = $mods->xpath("//mods:relatedItem[1]/mods:part/mods:extent[@unit='pages']");
+
+  // Note: "pages" is correct, but Zotero uses "page".
+  if (empty($pages)) {
+    $pages = $mods->xpath("//mods:relatedItem[1]/mods:part/mods:extent[@unit='page']");
+  }
+
+  $pages = !empty($pages) ? $pages[0] : NULL;
+  if ($pages) {
+    module_load_include('inc', 'citeproc', 'includes/converter');
+    add_mods_namespace($pages);
+    $total = $pages->xpath('mods:total');
+    $total = !empty($total) ? (string) $total[0] : NULL;
+    $list = $pages->xpath('mods:list');
+    $list = !empty($list) ? (string) $list[0] : NULL;
+    $start = $pages->xpath('mods:start');
+    $start = !empty($start) ? (string) $start[0] : NULL;
+    $end = $pages->xpath('mods:end');
+    $end = !empty($end) ? (string) $end[0] : NULL;
+    if ($total) {
+      $output = $total;
+    }
+    elseif ($list) {
+      $output = $list;
+    }
+    elseif ($start) {
+      $output = $start;
+      if ($end) {
+        $output .= "-" . $end;
+      }
+    }
+  }
+  return $output;
+}
+
+/**
+ * Helper function to extract the volume or issue from mods.
+ *
+ * @param $mods
+ *   The mods.
+ * @param $type
+ *   Either we issue or volume.
+ *
+ * @return int|string
+ *   The volume number.
+ */
+function _cwrc_citeproc_convert_mods_to_citeproc_json_volume_issue($mods, $type) {
+  $number_value = '';
+  if ($mods) {
+    $query = "//mods:part/mods:detail[@type='{$type}']";
+    $number = $mods->xpath($query);
+    $number = !empty($number) ? $number[0] : NULL;
+    if ($number) {
+      module_load_include('inc', 'citeproc', 'includes/converter');
+      add_mods_namespace($number);
+      $number = $number->xpath('mods:number');
+      if(isset($number[0])) {
+        $number_value = (int) $number[0];
+        // The above will return zero if number is roman numeral then let try to
+        // upcast it into string below.
+        if (!$number_value) {
+          $number_value = (string) $number[0];
+        }
+      }
+    }
+  }
+
+  return $number_value;
+}
+
+/**
+ * Helper function to validate a date string.
+ *
+ * @param string $str_date
+ *   The date.
+ * @param string $format
+ *   The format.
+ *
+ * @return false|string
+ *   The validated date or false when validation fail.
+ */
+function _cwrc_citeproc_get_valid_date($str_date, $format = 'j m. Y') {
+  $timestamp = strtotime($str_date);
+  $date = date($format, $timestamp);
+  $d = DateTime::createFromFormat($format, $date);
+  return ($d && $d->format($format) === $date) ? date('Y-m-d', $timestamp) : '';
 }
