@@ -10,44 +10,19 @@
  */
 function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block) {
   $object = menu_get_object('islandora_object', 2);
-  $style = variable_get('islandora_blocks_citation_style');
-  $citeproc_style = citeproc_style($style);
-  $locale_xml = _cwrc_citeproc_get_locales_file_name();
-  if (empty($object) || empty($citeproc_style['data']) || empty($locale_xml)) {
+  $style = variable_get('islandora_blocks_citation_style', '');
+  if (empty($object) || !$style) {
     return;
   }
 
   $object_id = $object->id;
-  $module_name = 'cwrc_citeproc';
-  $path = drupal_get_path('module', $module_name);
-  $mods_content = $object['MODS']->content;
-
-  module_load_include('inc', 'citeproc', 'includes/converter');
-  $raw = convert_mods_to_citeproc_jsons($mods_content);
-  $raw = _citeproc_array_to_object($raw);
-
-  // Adding id based on the object.
-  $raw->id = $object_id;
-
   $container_id = 'cwrc-citeproc-bibliography-wrapper-' . drupal_clean_css_identifier($object_id);
-  $js_settings[$module_name] = array(
-    'style' => $citeproc_style,
-    'locale_xml' => $locale_xml,
-    'items' => [$object_id => $raw],
-    'item_ids' => [$object_id],
-    'container_id' => $container_id,
-  );
+  $items = array($object_id => $object['MODS']->content);
   $content = array(
     '#markup' => t('<h3>Bibliography rendered by citeproc js:</h3><div id="@container_id"></div>', array(
       '@container_id' => $container_id,
     )),
-    '#attached' => array(
-      'js' => array(
-        array('type' => 'setting', 'data' => $js_settings),
-        $path . '/js/citeproc.js',
-        $path . '/js/block.js',
-      ),
-    ),
+    '#attached' => _cwrc_citeproc_get_js_attach($style, $items),
   );
 
   $data['content'] .= drupal_render($content);
@@ -268,4 +243,53 @@ function _cwrc_citeproc_get_valid_date($str_date, $format = 'j m. Y') {
   $date = date($format, $timestamp);
   $d = DateTime::createFromFormat($format, $date);
   return ($d && $d->format($format) === $date) ? date('Y-m-d', $timestamp) : '';
+}
+
+/**
+ * Gets the js attachment to process the citeproc.
+ *
+ * @param $style
+ *   The citeproc style file.
+ * @param $items
+ *   The object items.
+ * @param string $container_id
+ *   Container wrapper id.
+ *
+ * @return array
+ *   The attachment array.
+ */
+function _cwrc_citeproc_get_js_attach($style, $items) {
+  $citation_items = array();
+  $module_name = 'cwrc_citeproc';
+  $path = drupal_get_path('module', $module_name) . '/js';
+  $citeproc_style = citeproc_style($style);
+
+  module_load_include('inc', 'citeproc', 'includes/converter');
+  foreach ($items as $object_id => $mods_content) {
+    $raw = convert_mods_to_citeproc_jsons($mods_content);
+    $raw = _citeproc_array_to_object($raw);
+    // Adding id based on the object.
+    $raw->id = $object_id;
+
+    $item_container_id = 'cwrc-citeproc-bibliography-wrapper-' . drupal_clean_css_identifier($object_id);
+    $citation_items[$object_id]['id'] =  $item_container_id;
+    $citation_items[$object_id]['raw'] = $raw;
+  }
+
+  $js_settings[$module_name] = array(
+    'style' => $citeproc_style,
+    'locale_xml' => _cwrc_citeproc_get_locales_file_name(),
+    'items' => $citation_items,
+    'item_ids' => array_keys($items),
+  );
+
+  $attach = array(
+    'js' => array(
+      array('type' => 'setting', 'data' => $js_settings),
+      $path . '/citeproc.js',
+      $path . '/init.js',
+    ),
+  );
+
+  return $attach;
 }

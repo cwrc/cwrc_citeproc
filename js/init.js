@@ -7,8 +7,7 @@
       var module_settings = settings.cwrc_citeproc,
         items = module_settings.items,
         itemIds = module_settings.item_ids,
-        style = module_settings.style.data,
-        containers = document.getElementById(module_settings.container_id);
+        style = module_settings.style.data;
 
       // Initialize a system object, which contains two methods needed by the
       // engine.
@@ -24,23 +23,56 @@
         // Given an identifier, this retrieves one citation item.  This method
         // must return a valid CSL-JSON object.
         retrieveItem: function (id) {
-          return items[id];
+          return items[id].raw;
         }
       };
 
-      // This runs at document ready, and renders the bibliography.
+      /**
+       * Helper to merge the citations and ids.
+       *
+       * @param ids
+       * @param citations
+       */
+      function mergeIdsCitation(ids, citations) {
+        var result = {};
+        for (var i = 0; i < ids.length; i++) {
+          result[ids[i]] = citations[i];
+        }
+
+        return result;
+      }
+
+      /**
+       * This runs at document ready, and renders the bibliography.
+       */
       function processorOutput() {
         // Given the identifier of a CSL style, we instantiates a CSL.Engine
         // object that can render citations in that style.
         var citeproc = new CSL.Engine(citeprocSys, style);
         citeproc.updateItems(itemIds);
         var bibResult = citeproc.makeBibliography();
-        console.log(bibResult);
-        return bibResult[1].join('\n');
+        if (bibResult.length) {
+          var item_ids = JSON.parse(JSON.stringify(bibResult[0].entry_ids));
+          item_ids = [].concat.apply([], item_ids);
+          var citations = mergeIdsCitation(item_ids, bibResult[1]);
+
+          for (var object_id in citations) {
+            // Skip loop if the property is from prototype.
+            if (!citations.hasOwnProperty(object_id)) {
+              continue;
+            }
+
+            // Replacing the default link text with the citation.
+            if (items.hasOwnProperty(object_id)) {
+              var item_wrapper = document.getElementById(items[object_id].id);
+              item_wrapper.innerHTML = citations[object_id];
+            }
+          }
+        }
       }
 
-      // Add the output in the wrapper.
-      content.innerHTML = processorOutput();
+      // Process the output.
+      processorOutput();
     }
   };
 })(jQuery, Drupal);
