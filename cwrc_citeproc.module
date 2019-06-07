@@ -9,23 +9,25 @@
  * Implements hook_block_view_MODULE_DELTA_alter().
  */
 function cwrc_citeproc_block_view_islandora_blocks_citation_alter(&$data, $block) {
-  $object = menu_get_object('islandora_object', 2);
-  $style = variable_get('islandora_blocks_citation_style', '');
-  if (empty($object) || !$style) {
-    return;
+  if (!empty($data['content'])) {
+    $object = menu_get_object('islandora_object', 2);
+    $style = variable_get('islandora_blocks_citation_style', '');
+    if (empty($object) || !$style) {
+      return;
+    }
+
+    $object_id = $object->id;
+    $container_id = 'cwrc-citeproc-bibliography-wrapper-' . drupal_clean_css_identifier($object_id);
+    $items = [$object_id => $object['MODS']->content];
+    $content = [
+      '#markup' => t('<h3>Bibliography rendered by citeproc js:</h3><div id="@container_id"></div>', [
+        '@container_id' => $container_id,
+      ]),
+      '#attached' => _cwrc_citeproc_get_js_attach($style, $items),
+    ];
+
+    $data['content'] .= drupal_render($content);
   }
-
-  $object_id = $object->id;
-  $container_id = 'cwrc-citeproc-bibliography-wrapper-' . drupal_clean_css_identifier($object_id);
-  $items = array($object_id => $object['MODS']->content);
-  $content = array(
-    '#markup' => t('<h3>Bibliography rendered by citeproc js:</h3><div id="@container_id"></div>', array(
-      '@container_id' => $container_id,
-    )),
-    '#attached' => _cwrc_citeproc_get_js_attach($style, $items),
-  );
-
-  $data['content'] .= drupal_render($content);
 }
 
 /**
